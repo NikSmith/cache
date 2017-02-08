@@ -1,29 +1,32 @@
-package internalCache
+package cache
 
 import (
+	"io"
 	"sync"
 	"time"
 )
 
 type (
 	cacheItem struct {
-		value interface{}
+		value  interface{}
 		expire time.Time
 	}
 
 	cache struct {
-		data map[string]cacheItem
-		duration time.Duration
-		ticker *time.Ticker
-		lock sync.RWMutex
+		io.Closer
+
+		data           map[string]*cacheItem
+		duration       time.Duration
+		tickerDuration time.Duration
+		lock           sync.RWMutex
 	}
 )
 
-func NewCache(duration time.Duration, tickerDuration time.Duration) *cache {
-	c:= cache{
-		duration: duration,
-		ticker: time.NewTicker(tickerDuration),
-		data: make(map[string]cacheItem),
+func New(duration time.Duration, tickerDuration time.Duration) *cache {
+	c := cache{
+		duration:       duration,
+		tickerDuration: tickerDuration,
+		data:           make(map[string]*cacheItem),
 	}
 
 	go c.cleaner()
@@ -32,12 +35,27 @@ func NewCache(duration time.Duration, tickerDuration time.Duration) *cache {
 }
 
 func (c *cache) cleaner() {
-	for t := range c.ticker.C {
+
+	for {
+		c.lock.RLock()
+		duration := c.tickerDuration
+		c.lock.RUnlock()
+
+		if duration == 0 {
+			break
+		}
+
+		time.Sleep(duration)
+
+		c.lock.Lock()
+
 		for key, item := range c.data {
-			if item.expire.Before(t) {
-				c.Del(key)
+			if item.expire.Before(time.Now()) {
+				delete(c.data, key)
 			}
 		}
+
+		c.lock.Unlock()
 	}
 }
 
@@ -47,50 +65,50 @@ func (c *cache) Set(key string, value interface{}) {
 }
 
 func (c *cache) SetWithExpire(key string, value interface{}, expire time.Time) {
+
 	c.lock.Lock()
+	defer c.lock.Unlock()
 
-	_, ok := c.data[key]
-	if ok {
-		delete(c.data, key)
-	}
-
-	c.data[key] = cacheItem{
-		value: value,
+	c.data[key] = &cacheItem{
+		value:  value,
 		expire: expire,
 	}
-
-	c.lock.Unlock()
 }
 
-func (c *cache) Get(key string) interface{} {
-	data, ok := c.data[key]
-	if !ok {
-		return nil
+func (c *cache) Get(key string) (value interface{}) {
+
+	c.lock.RLock()
+
+	item, exist := c.data[key]
+	valid := exist && !item.expire.Before(time.Now())
+	if valid {
+		value = item.value
 	}
 
-	now := time.Now()
-	if data.expire.Before(now) {
-		c.Del(key)
-		return nil
+	c.lock.RUnlock()
+
+	if exist && !valid {
+		go c.Del(key)
 	}
 
-	return data.value
+	return
 }
 
 func (c *cache) Del(key string) {
+
 	c.lock.Lock()
+	defer c.lock.Unlock()
+
 	delete(c.data, key)
-	c.lock.Unlock()
 }
 
-func (c *cache) Destroy() {
-	c.ticker.Stop()
+func (c *cache) Close() error {
 
 	c.lock.Lock()
+	defer c.lock.Unlock()
 
-	for  key := range c.data {
-		delete(c.data, key)
-	}
+	c.tickerDuration = 0
+	c.data = nil
 
-	c.lock.Unlock()
+	return nil
 }
