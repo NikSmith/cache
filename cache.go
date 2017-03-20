@@ -12,7 +12,7 @@ type (
 		expire time.Time
 	}
 
-	cache struct {
+	Cache struct {
 		io.Closer
 
 		data           map[string]*cacheItem
@@ -22,8 +22,8 @@ type (
 	}
 )
 
-func New(duration time.Duration, tickerDuration time.Duration) *cache {
-	c := cache{
+func New(duration time.Duration, tickerDuration time.Duration) *Cache {
+	c := Cache{
 		duration:       duration,
 		tickerDuration: tickerDuration,
 		data:           make(map[string]*cacheItem),
@@ -34,7 +34,7 @@ func New(duration time.Duration, tickerDuration time.Duration) *cache {
 	return &c
 }
 
-func (c *cache) cleaner() {
+func (c *Cache) cleaner() {
 
 	for {
 		c.lock.RLock()
@@ -59,12 +59,12 @@ func (c *cache) cleaner() {
 	}
 }
 
-func (c *cache) Set(key string, value interface{}) {
+func (c *Cache) Set(key string, value interface{}) {
 	expire := time.Now().Add(c.duration)
 	c.SetWithExpire(key, value, expire)
 }
 
-func (c *cache) SetWithExpire(key string, value interface{}, expire time.Time) {
+func (c *Cache) SetWithExpire(key string, value interface{}, expire time.Time) {
 
 	c.lock.Lock()
 	defer c.lock.Unlock()
@@ -75,7 +75,7 @@ func (c *cache) SetWithExpire(key string, value interface{}, expire time.Time) {
 	}
 }
 
-func (c *cache) Get(key string) (value interface{}) {
+func (c *Cache) Get(key string) (value interface{}) {
 
 	c.lock.RLock()
 
@@ -94,7 +94,7 @@ func (c *cache) Get(key string) (value interface{}) {
 	return
 }
 
-func (c *cache) Del(key string) {
+func (c *Cache) Del(key string) {
 
 	c.lock.Lock()
 	defer c.lock.Unlock()
@@ -102,7 +102,7 @@ func (c *cache) Del(key string) {
 	delete(c.data, key)
 }
 
-func (c *cache) Close() error {
+func (c *Cache) Close() error {
 
 	c.lock.Lock()
 	defer c.lock.Unlock()
