@@ -30,7 +30,7 @@ func TestSetAndGet(t *testing.T) {
 }
 
 func TestGetAfterClean(t *testing.T) {
-	cache := New(2*time.Second, 10*time.Second)
+	cache := New(time.Second/2, time.Second)
 	defer cache.Close()
 
 	cache.Set("test", "test")
@@ -39,7 +39,7 @@ func TestGetAfterClean(t *testing.T) {
 		t.Error("Value is nil")
 	}
 
-	time.Sleep(3 * time.Second)
+	time.Sleep(cache.Duration + 100)
 
 	if val := cache.Get("test"); val != nil {
 		t.Error("Value is not nil")
@@ -47,7 +47,7 @@ func TestGetAfterClean(t *testing.T) {
 }
 
 func TestGetUnsetted(t *testing.T) {
-	cache := New(1*time.Second, 10*time.Second)
+	cache := New(time.Second, 2*time.Second)
 	defer cache.Close()
 
 	if val := cache.Get("key"); val != nil {
@@ -56,7 +56,7 @@ func TestGetUnsetted(t *testing.T) {
 }
 
 func TestDel(t *testing.T) {
-	cache := New(1*time.Second, 10*time.Second)
+	cache := New(time.Second, 10*time.Second)
 	defer cache.Close()
 
 	cache.Set("key", "DATA")
@@ -68,7 +68,7 @@ func TestDel(t *testing.T) {
 }
 
 func TestCleaner(t *testing.T) {
-	cache := New(2*time.Second, 5*time.Second)
+	cache := New(2*time.Second, 2*time.Second)
 	defer cache.Close()
 
 	cache.Set("keyTest", "DATA")
@@ -77,14 +77,11 @@ func TestCleaner(t *testing.T) {
 		t.Error("Value is nil")
 	}
 
-	timer := time.NewTimer(6 * time.Second)
-	<-timer.C
+	time.Sleep(cache.TickerDuration * 2)
 
 	if len(cache.data) != 0 {
 		t.Error("Cache was't cleaned")
 	}
-
-	timer.Stop()
 }
 
 func BenchmarkThreads(b *testing.B) {
@@ -92,49 +89,30 @@ func BenchmarkThreads(b *testing.B) {
 	cache := New(2*time.Second, 2*time.Second)
 	defer cache.Close()
 
-	add := func(threadNum int) {
-		for i := 0; i < 1000; i++ {
-			key := strconv.Itoa(threadNum*10000 + i)
-			cache.Set(key, key)
-		}
-	}
+	runThread := func(threadNum int) {
+		pref := threadNum * 10000
 
-	get := func(threadNum int) {
 		for i := 0; i < 1000; i++ {
-			key := strconv.Itoa(threadNum*10000 + i)
-			cache.Get(key)
-		}
-	}
+			key := strconv.Itoa(pref + i)
 
-	del := func(threadNum int) {
-		for i := 0; i < 1000; i++ {
-			key := strconv.Itoa(threadNum*10000 + i)
-			cache.Del(key)
+			operType := i % 3
+			if operType == 0 {
+				cache.Set(key, key)
+			} else if operType == 1 {
+				cache.Get(key)
+			} else if operType == 2 {
+				cache.Del(key)
+			}
 		}
 	}
 
 	wg := sync.WaitGroup{}
 	for thread := 0; thread < 5000; thread++ {
-
+		wg.Add(1)
 		go func() {
-			wg.Add(1)
 			defer wg.Done()
 
-			add(thread)
-		}()
-
-		go func() {
-			wg.Add(1)
-			defer wg.Done()
-
-			get(thread)
-		}()
-
-		go func() {
-			wg.Add(1)
-			defer wg.Done()
-
-			del(thread)
+			runThread(thread)
 		}()
 	}
 
